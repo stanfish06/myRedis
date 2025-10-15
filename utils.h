@@ -1,4 +1,9 @@
 #include <cassert>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #ifndef UTILS_H
 #define UTILS_H
@@ -32,5 +37,6 @@ inline static int32_t write_all(int fd, const char *buf, size_t n) {
 	}
 	return 0;
 }
+
 
 #endif
