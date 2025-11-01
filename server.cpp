@@ -22,6 +22,7 @@ static void login(int connfd) {
 }
 
 const size_t k_max_msg = 4096;
+
 static int32_t one_request(int connfd) {
 	char rbuf[4 + k_max_msg];
 	errno = 0;
@@ -64,6 +65,11 @@ static Conn *handle_accept(int fd) {
 	if (connfd < 0) {
 		return NULL;
 	}
+	uint32_t ip = client_addr.sin_addr.s_addr;
+	fprintf(stderr, "new client from %u.%u.%u.%u:%u\n",
+	    ip & 255, (ip >> 8) & 255, (ip >> 16) & 255, ip >> 24,
+	    ntohs(client_addr.sin_port)
+	);
 
 	fd_set_nb(connfd);
 	Conn *conn      = new Conn();
@@ -72,12 +78,66 @@ static Conn *handle_accept(int fd) {
 	return conn;
 }
 
-static Conn *handle_read(Conn *conn) {
-	return conn;
+static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t len) {
+    buf.insert(buf.end(), data, data + len);
 }
 
-static Conn *handle_write(Conn *conn) {
-	return conn;
+static void buf_consume(std::vector<uint8_t> &buf, size_t n) {
+    buf.erase(buf.begin(), buf.begin() + n);
+}
+
+static bool try_one_request(Conn *conn) {
+        if (conn->incoming.size() < 4) {
+		return false;
+	}                
+	uint32_t len = 0;
+	memcpy(&len, conn->incoming.data(), 4);
+	// message too long
+        if (len > k_max_msg) {
+		conn->want_close = true;
+		return false;
+	}
+	// this is a messed up mesage
+        if (4 + len > conn->incoming.size()) {
+		return false;
+	}                
+	const uint8_t *request = &conn->incoming[4];
+	printf("client says: len:%d data:%.*s\n", len, len < 100 ? len : 100, request);
+
+	buf_append(conn->outgoing, (const uint8_t *)&len, 4);
+	buf_append(conn->outgoing, request, len);
+	buf_consume(conn->incoming, 4+len);
+	return true;
+}        
+
+static void handle_read(Conn *conn) {
+	uint8_t buf[64 * 1024];
+	ssize_t rv = read(conn->fd, buf, sizeof(buf));
+        if (rv <= 0) {
+		conn->want_close = true;                    
+		return;
+        }
+	buf_append(conn->incoming, buf, (size_t)rv);        
+	try_one_request(conn);
+
+        if (conn->outgoing.size() > 0) {
+		conn->want_read = false;
+		conn->want_write = true;
+	}                
+}
+
+static void handle_write(Conn *conn) {
+	assert(conn->outgoing.size() > 0);
+	ssize_t rv = write(conn->fd, conn->outgoing.data(), conn->outgoing.size());
+        if (rv < 0) {
+	    conn->want_close = true;
+	    return;
+	}                
+	buf_consume(conn->outgoing, (size_t)rv);
+        if (conn->outgoing.size() == 0) {
+		conn->want_read = true;
+		conn->want_write = false;
+	}                
 }
 
 int main() {
@@ -103,7 +163,7 @@ int main() {
 			if(!conn) {
 				continue;
 			}
-			struct pollfd pfd = {fd, POLLERR, 0};
+			struct pollfd pfd = {conn->fd, POLLERR, 0};
 			if (conn->want_read) {
 				pfd.events |= POLLIN;
 			}
@@ -120,6 +180,7 @@ int main() {
 		if (rv < 0) {
 			return -1;
 		}
+		// accept new connection
 		if (poll_args[0].revents) {
 			if (Conn *conn = handle_accept(fd)) {
 				if (fd2conn.size() <= (size_t)conn->fd) {
@@ -145,22 +206,5 @@ int main() {
 			}
 		}
 	}
-
-	// while (true) {
-	// 	struct sockaddr_in client_addr = {};
-	// 	socklen_t addrlen = sizeof(client_addr);
-	// 	int connfd = accept(fd, (struct sockaddr *)&client_addr, &addrlen);
-	//
-	// 	if (connfd < 0) {
-	// 		continue;
-	// 	}
-	// 	while (true) {
-	// 		int32_t err = one_request(connfd);
-	// 		if (err) {
-	// 			break;
-	// 		}
-	// 	}
-	// 	close(connfd);
-	// }
 }
 
