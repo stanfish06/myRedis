@@ -4,3 +4,6 @@
 !*.cpp
 !*.h
 !*.toml
+!.gitignore
+!Makefile
+!*.sh

@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cstdint>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <sys/socket.h>
@@ -8,7 +9,17 @@
 #ifndef UTILS_H
 #define UTILS_H
 
-// this is primarily make sure exactly n bytes are read, 
+// max frame body size, shared by client and server
+const size_t k_max_msg = 4096;
+
+// response status codes
+enum {
+	RES_OK  = 0,
+	RES_ERR = 1,  // unknown command or bad args, data holds the message
+	RES_NX  = 2,  // key not found
+};
+
+// this is primarily make sure exactly n bytes are read,
 // which is not always true. For example, if you only read
 // a bytes (a < n) in the first msg, you need read anothe r msg (or maybe more)
 inline static int32_t read_full(int fd, char *buf, size_t n) {
